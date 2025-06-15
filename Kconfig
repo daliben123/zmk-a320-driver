@@ -1,0 +1,16 @@
+config INPUT_A320
+    bool "A320 touchpad Driver"
+    depends on I2C && INPUT
+    default n
+    help
+      This option enables support for the Avago A320 optical touchpad.
+      The A320 is an optical motion sensor that can detect movement
+      along X and Y axes. It communicates via I2C interface.
+
+      To compile this driver as a module, choose M here: the
+      module will be called a320.
+
+      If unsure, say N.
+
+      Select this option if you have an A320 touchpad connected to
+      your system. Requires I2C support in the kernel.    
