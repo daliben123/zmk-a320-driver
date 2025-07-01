@@ -11,6 +11,10 @@
 #define REG_DELTA_Y     0x04
 #define BIT_MOTION_MOT  (1 << 7)
 
+// 滑动检测参数
+#define SWIPE_THRESHOLD 5      // 最小滑动距离
+#define SWIPE_DIRECTION_RATIO 2 // 方向判断比例
+
 // 设备配置结构体
 struct touchpad_config {
     struct i2c_dt_spec i2c;
@@ -57,9 +61,19 @@ static void process_motion(struct k_work *work) {
             int64_t now = k_uptime_get();
             if (now - data->last_swipe_time > cfg->swipe_cooldown_ms) {
                 zmk_keycode_t key = ZMK_KEY_NONE;
-                // 滑动方向判断（使用原始逻辑）
-                if (/* 水平滑动条件 */) key = (x < 0) ? KEY_LEFT : KEY_RIGHT;
-                else if (/* 垂直滑动条件 */) key = (y < 0) ? KEY_UP : KEY_DOWN;
+                int abs_x = ABS(x);
+                int abs_y = ABS(y);
+                
+                // 滑动方向判断
+                if (abs_x >= SWIPE_THRESHOLD || abs_y >= SWIPE_THRESHOLD) {
+                    if (abs_x > abs_y * SWIPE_DIRECTION_RATIO) {
+                        // 水平滑动
+                        key = (x < 0) ? KEY_LEFT : KEY_RIGHT;
+                    } else if (abs_y > abs_x * SWIPE_DIRECTION_RATIO) {
+                        // 垂直滑动
+                        key = (y < 0) ? KEY_UP : KEY_DOWN;
+                    }
+                }
                 
                 if (key != ZMK_KEY_NONE) {
                     zmk_input_keypress(key, true);  // 按下
