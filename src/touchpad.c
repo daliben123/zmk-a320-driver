@@ -32,6 +32,94 @@ struct touchpad_data {
     int64_t last_swipe_time;
 };
 
+// 上电序列函数
+static void touchpad_power_up_sequence(const struct touchpad_config *cfg) {
+    // 步骤2: 设置引脚（假设Shutdown和IO_Select是GPIO引脚）
+    gpio_pin_set_dt(&cfg->shutdown_gpio, 0);
+    // 这里假设使用TWI，IO_Select置低
+    // gpio_pin_set_dt(&io_select_gpio, 0); 
+
+    // 步骤3: 设置TWI从地址（假设A0和A1已设置）
+
+    // 步骤4: 复位NRST引脚
+    gpio_pin_set_dt(&cfg->reset_gpio, 0);
+    k_msleep(100);
+    gpio_pin_set_dt(&cfg->reset_gpio, 1);
+
+    // 步骤7: 向地址0x60写入0xE4
+    uint8_t value = 0xE4;
+    i2c_reg_write_byte_dt(&cfg->i2c, 0x60, value);
+
+    // 步骤8: 设置速度切换
+    value = 0x12;
+    i2c_reg_write_byte_dt(&cfg->i2c, 0x62, value);
+    value = 0x0E;
+    i2c_reg_write_byte_dt(&cfg->i2c, 0x63, value);
+
+    // 步骤9: 检查寄存器0x64 - 0x6b
+    uint8_t expected_values_64_6b[] = {0x08, 0x06, 0x40, 0x08, 0x48, 0x0a, 0x50, 0x48};
+    for (int i = 0; i < 8; i++) {
+        uint8_t reg_value;
+        i2c_reg_read_byte_dt(&cfg->i2c, 0x64 + i, &reg_value);
+        if (reg_value != expected_values_64_6b[i]) {
+            // 处理错误
+            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x64 + i, expected_values_64_6b[i], reg_value);
+        }
+    }
+
+    // 步骤10: 检查Assert/De-assert寄存器
+    uint8_t expected_values_6d_71[] = {0xc4, 0x34, 0x3c, 0x18, 0x20};
+    for (int i = 0; i < 5; i++) {
+        uint8_t reg_value;
+        i2c_reg_read_byte_dt(&cfg->i2c, 0x6d + i, &reg_value);
+        if (reg_value != expected_values_6d_71[i]) {
+            // 处理错误
+            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x6d + i, expected_values_6d_71[i], reg_value);
+        }
+    }
+
+    // 步骤11: 检查手指存在检测寄存器
+    uint8_t expected_value_75 = 0x50;
+    uint8_t reg_value_75;
+    i2c_reg_read_byte_dt(&cfg->i2c, 0x75, &reg_value_75);
+    if (reg_value_75 != expected_value_75) {
+        // 处理错误
+        printk("Error: Register 0x75 value mismatch, expected 0x%x, got 0x%x\n", expected_value_75, reg_value_75);
+    }
+
+    // 步骤12: 若使用XY量化，检查寄存器0x73和0x74
+    // 假设使用XY量化
+    uint8_t expected_values_73_74[] = {0x99, 0x02};
+    for (int i = 0; i < 2; i++) {
+        uint8_t reg_value;
+        i2c_reg_read_byte_dt(&cfg->i2c, 0x73 + i, &reg_value);
+        if (reg_value != expected_values_73_74[i]) {
+            // 处理错误
+            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x73 + i, expected_values_73_74[i], reg_value);
+        }
+    }
+
+    // 步骤13: 若使用突发模式，向寄存器0x1C写入0x10
+    // 假设使用突发模式
+    value = 0x10;
+    i2c_reg_write_byte_dt(&cfg->i2c, 0x1C, value);
+
+    // 步骤14: 从寄存器0x02、0x03和0x04读取一次数据
+    uint8_t motion, delta_x, delta_y;
+    i2c_reg_read_byte_dt(&cfg->i2c, 0x02, &motion);
+    i2c_reg_read_byte_dt(&cfg->i2c, 0x03, &delta_x);
+    i2c_reg_read_byte_dt(&cfg->i2c, 0x04, &delta_y);
+
+    // 步骤15: 检查0x1a的值是否为0x00
+    uint8_t expected_value_1a = 0x00;
+    uint8_t reg_value_1a;
+    i2c_reg_read_byte_dt(&cfg->i2c, 0x1a, &reg_value_1a);
+    if (reg_value_1a != expected_value_1a) {
+        // 处理错误
+        printk("Error: Register 0x1a value mismatch, expected 0x%x, got 0x%x\n", expected_value_1a, reg_value_1a);
+    }
+}
+
 // 中断处理（Zephyr回调模式）
 static void motion_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
     struct touchpad_data *data = CONTAINER_OF(cb, struct touchpad_data, motion_cb);
@@ -93,6 +181,9 @@ static void process_motion(struct k_work *work) {
 static int touchpad_init(const struct device *dev) {
     const struct touchpad_config *cfg = dev->config;
     struct touchpad_data *data = dev->data;
+
+    // 执行上电序列
+    touchpad_power_up_sequence(cfg);
 
     // GPIO初始化
     gpio_pin_configure_dt(&cfg->reset_gpio, GPIO_OUTPUT_INACTIVE);
