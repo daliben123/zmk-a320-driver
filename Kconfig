@@ -1,16 +1,21 @@
-config INPUT_A320
-    bool "A320 touchpad Driver"
+config TOUCHPAD_DRIVER
+    bool "ZMK Touchpad Driver"
     depends on I2C && INPUT
     default n
+    select ZMK_EVENT_MANAGER if y
     help
-      This option enables support for the Avago A320 optical touchpad.
-      The A320 is an optical motion sensor that can detect movement
-      along X and Y axes. It communicates via I2C interface.
+      This option enables support for the ZMK touchpad driver,
+      compatible with Avago A320 optical motion sensors. The driver
+      converts touchpad movements into mouse relative position events
+      via the ZMK event system.
+
+      The touchpad communicates over I2C and supports motion detection
+      interrupts, scroll mode, boost speed, and slow speed adjustments.
 
       To compile this driver as a module, choose M here: the
-      module will be called a320.
+      module will be called touchpad.
 
       If unsure, say N.
 
-      Select this option if you have an A320 touchpad connected to
-      your system. Requires I2C support in the kernel.    
+      Select this option if you have a touchpad (e.g., Avago A320) 
+      connected to your system. Requires I2C support in the kernel.
