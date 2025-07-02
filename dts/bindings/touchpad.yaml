@@ -1,4 +1,4 @@
-description: ZMK Touchpad Driver (Compatible with Avago A320)
+description: ZMK Touchpad Driver
 
 compatible: "zmk,touchpad"
 
