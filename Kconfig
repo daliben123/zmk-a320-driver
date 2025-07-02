@@ -1,21 +1,29 @@
-config TOUCHPAD_DRIVER
-    bool "ZMK Touchpad Driver"
-    depends on I2C && INPUT
-    default n
-    select ZMK_EVENT_MANAGER if y
+# ZMK触控板驱动配置选项
+
+menuconfig ZMK_DRIVER_TOUCHPAD
+    bool "Touchpad driver"
+    default y
     help
-      This option enables support for the ZMK touchpad driver,
-      compatible with Avago A320 optical motion sensors. The driver
-      converts touchpad movements into mouse relative position events
-      via the ZMK event system.
+        Enable support for generic touchpads.
 
-      The touchpad communicates over I2C and supports motion detection
-      interrupts, scroll mode, boost speed, and slow speed adjustments.
+if ZMK_DRIVER_TOUCHPAD
 
-      To compile this driver as a module, choose M here: the
-      module will be called touchpad.
+config ZMK_DRIVER_TOUCHPAD_LOG_LEVEL
+    int "Logging level"
+    default 2
+    range 0 4
+    help
+        Set the logging level for the touchpad driver.
 
-      If unsure, say N.
+config ZMK_DRIVER_TOUCHPAD_DEFAULT_MODE
+    int "Default operation mode"
+    default 0
+    range 0 3
+    help
+        Set the default operation mode for the touchpad.
+        0: Normal mode
+        1: Scroll mode
+        2: Boost mode
+        3: Slow mode
 
-      Select this option if you have a touchpad (e.g., Avago A320) 
-      connected to your system. Requires I2C support in the kernel.
+endif # ZMK_DRIVER_TOUCHPAD
