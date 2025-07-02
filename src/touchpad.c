@@ -1,4 +1,4 @@
-// drivers/input/trackpad.c
+// drivers/input/touchpad.c
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
@@ -10,10 +10,10 @@
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
 
-LOG_MODULE_REGISTER(trackpad, CONFIG_ZMK_TOUCHPAD_LOG_LEVEL);
+LOG_MODULE_REGISTER(touchpad, CONFIG_ZMK_TOUCHPAD_LOG_LEVEL);
 
 // 驱动私有数据结构
-struct trackpad_data {
+struct touchpad_data {
     struct gpio_callback motion_cb_data;
     struct k_work_delayable work;
     struct zmk_relative_position_state state;
@@ -23,7 +23,7 @@ struct trackpad_data {
 };
 
 // 驱动配置结构
-struct trackpad_config {
+struct touchpad_config {
     struct i2c_dt_spec i2c;
     struct gpio_dt_spec motion_gpio;
     struct gpio_dt_spec reset_gpio;
@@ -52,8 +52,8 @@ enum {
 #define BIT_MOTION_OVF (1 << 4)
 
 // 从指定寄存器读取8位数据
-static int trackpad_read_register(const struct device *dev, uint8_t reg, uint8_t *val) {
-    const struct trackpad_config *cfg = dev->config;
+static int touchpad_read_register(const struct device *dev, uint8_t reg, uint8_t *val) {
+    const struct touchpad_config *cfg = dev->config;
     return i2c_reg_read_byte_dt(&cfg->i2c, reg, val);
 }
 
@@ -73,17 +73,17 @@ static int16_t convert_to_mouse_delta(int8_t raw, float scale_factor) {
 }
 
 // 处理触摸板数据的工作函数
-static void trackpad_work_handler(struct k_work *work) {
+static void touchpad_work_handler(struct k_work *work) {
     struct k_work_delayable *dwork = k_work_delayable_from_work(work);
-    const struct device *dev = CONTAINER_OF(dwork, struct trackpad_data, work);
-    const struct trackpad_config *cfg = dev->config;
-    struct trackpad_data *data = dev->data;
+    const struct device *dev = CONTAINER_OF(dwork, struct touchpad_data, work);
+    const struct touchpad_config *cfg = dev->config;
+    struct touchpad_data *data = dev->data;
     uint8_t motion_status;
     int8_t x, y;
     int err;
 
     // 读取运动状态
-    err = trackpad_read_register(dev, REG_MOTION, &motion_status);
+    err = touchpad_read_register(dev, REG_MOTION, &motion_status);
     if (err) {
         LOG_ERR("Failed to read motion register: %d", err);
         goto reschedule;
@@ -91,13 +91,13 @@ static void trackpad_work_handler(struct k_work *work) {
 
     if (motion_status & BIT_MOTION_MOT) {
         // 读取X和Y方向的移动数据
-        err = trackpad_read_register(dev, REG_DELTA_X, (uint8_t *)&x);
+        err = touchpad_read_register(dev, REG_DELTA_X, (uint8_t *)&x);
         if (err) {
             LOG_ERR("Failed to read delta X: %d", err);
             goto reschedule;
         }
 
-        err = trackpad_read_register(dev, REG_DELTA_Y, (uint8_t *)&y);
+        err = touchpad_read_register(dev, REG_DELTA_Y, (uint8_t *)&y);
         if (err) {
             LOG_ERR("Failed to read delta Y: %d", err);
             goto reschedule;
@@ -140,48 +140,48 @@ reschedule:
 }
 
 // 运动检测引脚中断回调
-static void trackpad_motion_callback(const struct device *dev, struct gpio_callback *cb,
+static void touchpad_motion_callback(const struct device *dev, struct gpio_callback *cb,
                                     uint32_t pins) {
-    struct trackpad_data *data = CONTAINER_OF(cb, struct trackpad_data, motion_cb_data);
+    struct touchpad_data *data = CONTAINER_OF(cb, struct touchpad_data, motion_cb_data);
     // 立即安排处理工作
     k_work_reschedule(&data->work, K_NO_WAIT);
 }
 
 // 设置模式的API函数
-int trackpad_set_scroll_mode(const struct device *dev, bool enable) {
+int touchpad_set_scroll_mode(const struct device *dev, bool enable) {
     if (!device_is_ready(dev)) {
         return -ENODEV;
     }
     
-    struct trackpad_data *data = dev->data;
+    struct touchpad_data *data = dev->data;
     data->is_scroll_mode = enable;
     return 0;
 }
 
-int trackpad_set_boost_mode(const struct device *dev, bool enable) {
+int touchpad_set_boost_mode(const struct device *dev, bool enable) {
     if (!device_is_ready(dev)) {
         return -ENODEV;
     }
     
-    struct trackpad_data *data = dev->data;
+    struct touchpad_data *data = dev->data;
     data->is_boost_mode = enable;
     return 0;
 }
 
-int trackpad_set_slow_mode(const struct device *dev, bool enable) {
+int touchpad_set_slow_mode(const struct device *dev, bool enable) {
     if (!device_is_ready(dev)) {
         return -ENODEV;
     }
     
-    struct trackpad_data *data = dev->data;
+    struct touchpad_data *data = dev->data;
     data->is_slow_mode = enable;
     return 0;
 }
 
 // 驱动初始化函数
-static int trackpad_init(const struct device *dev) {
-    const struct trackpad_config *cfg = dev->config;
-    struct trackpad_data *data = dev->data;
+static int touchpad_init(const struct device *dev) {
+    const struct touchpad_config *cfg = dev->config;
+    struct touchpad_data *data = dev->data;
     uint8_t pid, rev;
     int err;
 
@@ -228,7 +228,7 @@ static int trackpad_init(const struct device *dev) {
     }
 
     // 硬件复位序列
-    LOG_INF("Resetting trackpad...");
+    LOG_INF("Resetting touchpad...");
     gpio_pin_set_dt(&cfg->shutdown_gpio, 0);
     k_msleep(10);
     gpio_pin_set_dt(&cfg->reset_gpio, 0);
@@ -239,21 +239,21 @@ static int trackpad_init(const struct device *dev) {
     k_msleep(100);
 
     // 读取设备ID（可选，用于调试）
-    err = trackpad_read_register(dev, REG_PID, &pid);
+    err = touchpad_read_register(dev, REG_PID, &pid);
     if (err) {
         LOG_WRN("Failed to read product ID: %d", err);
     } else {
-        err = trackpad_read_register(dev, REG_REV, &rev);
+        err = touchpad_read_register(dev, REG_REV, &rev);
         if (err) {
             LOG_WRN("Failed to read revision ID: %d", err);
         } else {
-            LOG_INF("Trackpad detected - PID: 0x%02X, REV: 0x%02X", pid, rev);
+            LOG_INF("Touchpad detected - PID: 0x%02X, REV: 0x%02X", pid, rev);
         }
     }
 
     // 设置运动检测中断
     err = gpio_add_callback(cfg->motion_gpio.port, &data->motion_cb_data,
-                          trackpad_motion_callback);
+                          touchpad_motion_callback);
     if (err) {
         LOG_ERR("Failed to add motion callback: %d", err);
         return err;
@@ -266,24 +266,24 @@ static int trackpad_init(const struct device *dev) {
     }
 
     // 初始化工作队列
-    k_work_init_delayable(&data->work, trackpad_work_handler);
+    k_work_init_delayable(&data->work, touchpad_work_handler);
     
     // 安排首次轮询
     k_work_reschedule(&data->work, K_MSEC(cfg->poll_interval_ms));
 
-    LOG_INF("Trackpad driver initialized");
+    LOG_INF("Touchpad driver initialized");
     return 0;
 }
 
 // 驱动API结构
-static const struct trackpad_driver_api trackpad_api = {
-    .set_scroll_mode = trackpad_set_scroll_mode,
-    .set_boost_mode = trackpad_set_boost_mode,
-    .set_slow_mode = trackpad_set_slow_mode,
+static const struct touchpad_driver_api touchpad_api = {
+    .set_scroll_mode = touchpad_set_scroll_mode,
+    .set_boost_mode = touchpad_set_boost_mode,
+    .set_slow_mode = touchpad_set_slow_mode,
 };
 
 // 设备树绑定信息
-static const struct trackpad_config trackpad_config = {
+static const struct touchpad_config touchpad_config = {
     .i2c = I2C_DT_SPEC_INST_GET(0),
     .motion_gpio = GPIO_DT_SPEC_INST_GET(0, motion_gpios),
     .reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios),
@@ -295,8 +295,8 @@ static const struct trackpad_config trackpad_config = {
 };
 
 // 驱动私有数据实例
-static struct trackpad_data trackpad_data;
+static struct touchpad_data touchpad_data;
 
 // 注册驱动
-DEVICE_DT_INST_DEFINE(0, trackpad_init, NULL, &trackpad_data, &trackpad_config,
-                     POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &trackpad_api);
+DEVICE_DT_INST_DEFINE(0, touchpad_init, NULL, &touchpad_data, &touchpad_config,
+                     POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &touchpad_api);
