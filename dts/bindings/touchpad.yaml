@@ -7,7 +7,7 @@ include: i2c-device.yaml
 properties:
     motion-gpios:
       type: phandle-array
-      required: false
+      required: true
       description: |
         Motion detection output pin. Triggers an interrupt when motion is detected.
 
@@ -25,20 +25,34 @@ properties:
         Shutdown control pin. Active low.
         When pulled low, puts the sensor into a low-power state.
 
-    swipe-cooldown-ms:
+    poll-interval-ms:
       type: int
       required: false
-      default: 200
+      default: 10
       description: |
-        Minimum time (in milliseconds) between consecutive swipe detections.
-        Prevents accidental double swipes.
+        Polling interval (in milliseconds) for reading touchpad data.
+        Defaults to 10ms.
 
-    swipe-release-delay-ms:
+    scroll-speed-divider:
       type: int
       required: false
-      default: 50
+      default: 2
       description: |
-        Delay (in milliseconds) between keypress and keyrelease events during a swipe.
+        Divider for scroll mode speed. A higher value reduces scroll speed.
+
+    boost-speed-multiplier:
+      type: int
+      required: false
+      default: 2
+      description: |
+        Multiplier for boost mode speed. Increases cursor movement speed.
+
+    slow-speed-divider:
+      type: int
+      required: false
+      default: 2
+      description: |
+        Divider for slow mode speed. A higher value reduces cursor speed.
 
 # Example usage in a device tree:
 # touchpad@39 {
@@ -47,6 +61,8 @@ properties:
 #     motion-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 #     reset-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
 #     shutdown-gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
-#     swipe-cooldown-ms = <250>;
-#     swipe-release-delay-ms = <75>;
+#     poll-interval-ms = <10>;
+#     scroll-speed-divider = <2>;
+#     boost-speed-multiplier = <2>;
+#     slow-speed-divider = <2>;
 # };
