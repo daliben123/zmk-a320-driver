@@ -1,221 +1,302 @@
-#include <zephyr/kernel.h>
+// drivers/input/trackpad.c
+
+#include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/gpio.h>
-#include <zmk/input.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zmk/endpoints.h>
+#include <zmk/keymap.h>
+#include <zmk/event_manager.h>
+#include <zmk/events/position_state_changed.h>
 
-#define DT_DRV_COMPAT zmk_touchpad
+LOG_MODULE_REGISTER(trackpad, CONFIG_ZMK_TOUCHPAD_LOG_LEVEL);
 
-// 寄存器定义（与原始代码一致）
-#define REG_MOTION      0x02
-#define REG_DELTA_X     0x03
-#define REG_DELTA_Y     0x04
-#define BIT_MOTION_MOT  (1 << 7)
+// 驱动私有数据结构
+struct trackpad_data {
+    struct gpio_callback motion_cb_data;
+    struct k_work_delayable work;
+    struct zmk_relative_position_state state;
+    bool is_scroll_mode;
+    bool is_boost_mode;
+    bool is_slow_mode;
+};
 
-// 滑动检测参数
-#define SWIPE_THRESHOLD 5      // 最小滑动距离
-#define SWIPE_DIRECTION_RATIO 2 // 方向判断比例
-
-// 设备配置结构体
-struct touchpad_config {
+// 驱动配置结构
+struct trackpad_config {
     struct i2c_dt_spec i2c;
     struct gpio_dt_spec motion_gpio;
     struct gpio_dt_spec reset_gpio;
     struct gpio_dt_spec shutdown_gpio;
-    uint32_t swipe_cooldown_ms;
-    uint32_t swipe_release_delay_ms;
+    uint32_t poll_interval_ms;
+    uint8_t scroll_speed_divider;
+    uint8_t boost_speed_multiplier;
+    uint8_t slow_speed_divider;
 };
 
-// 设备运行时数据
-struct touchpad_data {
-    struct gpio_callback motion_cb;
-    struct k_work motion_work;
-    int64_t last_swipe_time;
+// 寄存器定义
+enum {
+    REG_PID        = 0x00,
+    REG_REV        = 0x01,
+    REG_MOTION     = 0x02,
+    REG_DELTA_X    = 0x03,
+    REG_DELTA_Y    = 0x04,
+    REG_DELTA_XY_H = 0x05,
+    REG_CONFIG     = 0x11,
+    REG_OBSERV     = 0x2E,
+    REG_MBURST     = 0x42,
 };
 
-// 上电序列函数
-static void touchpad_power_up_sequence(const struct touchpad_config *cfg) {
-    // 步骤2: 设置引脚（假设Shutdown和IO_Select是GPIO引脚）
-    gpio_pin_set_dt(&cfg->shutdown_gpio, 0);
-    // 这里假设使用TWI，IO_Select置低
-    // gpio_pin_set_dt(&io_select_gpio, 0); 
+// 位定义
+#define BIT_MOTION_MOT (1 << 7)
+#define BIT_MOTION_OVF (1 << 4)
 
-    // 步骤3: 设置TWI从地址（假设A0和A1已设置）
-
-    // 步骤4: 复位NRST引脚
-    gpio_pin_set_dt(&cfg->reset_gpio, 0);
-    k_msleep(100);
-    gpio_pin_set_dt(&cfg->reset_gpio, 1);
-
-    // 步骤7: 向地址0x60写入0xE4
-    uint8_t value = 0xE4;
-    i2c_reg_write_byte_dt(&cfg->i2c, 0x60, value);
-
-    // 步骤8: 设置速度切换
-    value = 0x12;
-    i2c_reg_write_byte_dt(&cfg->i2c, 0x62, value);
-    value = 0x0E;
-    i2c_reg_write_byte_dt(&cfg->i2c, 0x63, value);
-
-    // 步骤9: 检查寄存器0x64 - 0x6b
-    uint8_t expected_values_64_6b[] = {0x08, 0x06, 0x40, 0x08, 0x48, 0x0a, 0x50, 0x48};
-    for (int i = 0; i < 8; i++) {
-        uint8_t reg_value;
-        i2c_reg_read_byte_dt(&cfg->i2c, 0x64 + i, &reg_value);
-        if (reg_value != expected_values_64_6b[i]) {
-            // 处理错误
-            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x64 + i, expected_values_64_6b[i], reg_value);
-        }
-    }
-
-    // 步骤10: 检查Assert/De-assert寄存器
-    uint8_t expected_values_6d_71[] = {0xc4, 0x34, 0x3c, 0x18, 0x20};
-    for (int i = 0; i < 5; i++) {
-        uint8_t reg_value;
-        i2c_reg_read_byte_dt(&cfg->i2c, 0x6d + i, &reg_value);
-        if (reg_value != expected_values_6d_71[i]) {
-            // 处理错误
-            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x6d + i, expected_values_6d_71[i], reg_value);
-        }
-    }
-
-    // 步骤11: 检查手指存在检测寄存器
-    uint8_t expected_value_75 = 0x50;
-    uint8_t reg_value_75;
-    i2c_reg_read_byte_dt(&cfg->i2c, 0x75, &reg_value_75);
-    if (reg_value_75 != expected_value_75) {
-        // 处理错误
-        printk("Error: Register 0x75 value mismatch, expected 0x%x, got 0x%x\n", expected_value_75, reg_value_75);
-    }
-
-    // 步骤12: 若使用XY量化，检查寄存器0x73和0x74
-    // 假设使用XY量化
-    uint8_t expected_values_73_74[] = {0x99, 0x02};
-    for (int i = 0; i < 2; i++) {
-        uint8_t reg_value;
-        i2c_reg_read_byte_dt(&cfg->i2c, 0x73 + i, &reg_value);
-        if (reg_value != expected_values_73_74[i]) {
-            // 处理错误
-            printk("Error: Register 0x%x value mismatch, expected 0x%x, got 0x%x\n", 0x73 + i, expected_values_73_74[i], reg_value);
-        }
-    }
-
-    // 步骤13: 若使用突发模式，向寄存器0x1C写入0x10
-    // 假设使用突发模式
-    value = 0x10;
-    i2c_reg_write_byte_dt(&cfg->i2c, 0x1C, value);
-
-    // 步骤14: 从寄存器0x02、0x03和0x04读取一次数据
-    uint8_t motion, delta_x, delta_y;
-    i2c_reg_read_byte_dt(&cfg->i2c, 0x02, &motion);
-    i2c_reg_read_byte_dt(&cfg->i2c, 0x03, &delta_x);
-    i2c_reg_read_byte_dt(&cfg->i2c, 0x04, &delta_y);
-
-    // 步骤15: 检查0x1a的值是否为0x00
-    uint8_t expected_value_1a = 0x00;
-    uint8_t reg_value_1a;
-    i2c_reg_read_byte_dt(&cfg->i2c, 0x1a, &reg_value_1a);
-    if (reg_value_1a != expected_value_1a) {
-        // 处理错误
-        printk("Error: Register 0x1a value mismatch, expected 0x%x, got 0x%x\n", expected_value_1a, reg_value_1a);
-    }
+// 从指定寄存器读取8位数据
+static int trackpad_read_register(const struct device *dev, uint8_t reg, uint8_t *val) {
+    const struct trackpad_config *cfg = dev->config;
+    return i2c_reg_read_byte_dt(&cfg->i2c, reg, val);
 }
 
-// 中断处理（Zephyr回调模式）
-static void motion_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-    struct touchpad_data *data = CONTAINER_OF(cb, struct touchpad_data, motion_cb);
-    k_work_submit(&data->motion_work); // 提交工作队列
+// 辅助函数：将原始触摸板数据转换为鼠标移动值
+static int16_t convert_to_mouse_delta(int8_t raw, float scale_factor) {
+    // 转换为有符号值
+    int16_t signed_val = (int16_t)raw;
+    
+    // 应用缩放因子
+    float scaled_val = signed_val * scale_factor;
+    
+    // 限制在合理范围内
+    if (scaled_val > INT16_MAX) return INT16_MAX;
+    if (scaled_val < INT16_MIN) return INT16_MIN;
+    
+    return (int16_t)scaled_val;
 }
 
-// 主处理逻辑（在工作队列中执行）
-static void process_motion(struct k_work *work) {
-    struct touchpad_data *data = CONTAINER_OF(work, struct touchpad_data, motion_work);
-    const struct device *dev = device_get_binding(DT_INST_LABEL(0));
-    const struct touchpad_config *cfg = dev->config;
+// 处理触摸板数据的工作函数
+static void trackpad_work_handler(struct k_work *work) {
+    struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+    const struct device *dev = CONTAINER_OF(dwork, struct trackpad_data, work);
+    const struct trackpad_config *cfg = dev->config;
+    struct trackpad_data *data = dev->data;
+    uint8_t motion_status;
+    int8_t x, y;
+    int err;
 
-    uint8_t motion;
-    i2c_reg_read_byte_dt(&cfg->i2c, REG_MOTION, &motion);
+    // 读取运动状态
+    err = trackpad_read_register(dev, REG_MOTION, &motion_status);
+    if (err) {
+        LOG_ERR("Failed to read motion register: %d", err);
+        goto reschedule;
+    }
 
-    if (motion & BIT_MOTION_MOT) {
-        int8_t x, y;
-        i2c_reg_read_byte_dt(&cfg->i2c, REG_DELTA_X, (uint8_t *)&x);
-        i2c_reg_read_byte_dt(&cfg->i2c, REG_DELTA_Y, (uint8_t *)&y);
+    if (motion_status & BIT_MOTION_MOT) {
+        // 读取X和Y方向的移动数据
+        err = trackpad_read_register(dev, REG_DELTA_X, (uint8_t *)&x);
+        if (err) {
+            LOG_ERR("Failed to read delta X: %d", err);
+            goto reschedule;
+        }
 
-        // 坐标转换（与原始代码一致）
-        x = ((x < 127) ? x : (x - 256)) * -1;
-        y = ((y < 127) ? y : (y - 256));
+        err = trackpad_read_register(dev, REG_DELTA_Y, (uint8_t *)&y);
+        if (err) {
+            LOG_ERR("Failed to read delta Y: %d", err);
+            goto reschedule;
+        }
 
-        // 滑动检测逻辑
-        if (zmk_keymap_layer_active(ALT_LAYER)) { // 检测Alt层激活
-            int64_t now = k_uptime_get();
-            if (now - data->last_swipe_time > cfg->swipe_cooldown_ms) {
-                zmk_keycode_t key = ZMK_KEY_NONE;
-                int abs_x = ABS(x);
-                int abs_y = ABS(y);
-                
-                // 滑动方向判断
-                if (abs_x >= SWIPE_THRESHOLD || abs_y >= SWIPE_THRESHOLD) {
-                    if (abs_x > abs_y * SWIPE_DIRECTION_RATIO) {
-                        // 水平滑动
-                        key = (x < 0) ? KEY_LEFT : KEY_RIGHT;
-                    } else if (abs_y > abs_x * SWIPE_DIRECTION_RATIO) {
-                        // 垂直滑动
-                        key = (y < 0) ? KEY_UP : KEY_DOWN;
-                    }
-                }
-                
-                if (key != ZMK_KEY_NONE) {
-                    zmk_input_keypress(key, true);  // 按下
-                    k_msleep(cfg->swipe_release_delay_ms);
-                    zmk_input_keypress(key, false); // 释放
-                    data->last_swipe_time = now;
-                }
-            }
+        // 根据当前模式处理移动数据
+        if (data->is_scroll_mode) {
+            // 滚动模式：将移动转换为水平和垂直滚动
+            data->state.h = convert_to_mouse_delta(x, 1.0f / cfg->scroll_speed_divider);
+            data->state.v = convert_to_mouse_delta(y, -1.0f / cfg->scroll_speed_divider);
+            data->state.x = 0;
+            data->state.y = 0;
         } else {
-            // 原始触摸回调（需扩展为ZMK输入子系统）
-            zmk_input_mouse_move(x, y); // 转换为鼠标移动事件
+            // 鼠标模式：根据速度模式调整移动速度
+            float speed_factor = -1.5f; // 默认速度因子
+            
+            if (data->is_boost_mode)
+                speed_factor *= cfg->boost_speed_multiplier;
+            else if (data->is_slow_mode)
+                speed_factor /= cfg->slow_speed_divider;
+                
+            // 应用速度因子并设置鼠标报告
+            data->state.x = convert_to_mouse_delta(x, speed_factor);
+            data->state.y = convert_to_mouse_delta(y, -speed_factor); // Y轴方向修正
+            data->state.h = 0;
+            data->state.v = 0;
         }
+
+        // 发布相对位置变化事件
+        struct zmk_relative_position_state_changed evt = {
+            .state = data->state,
+            .source = ZMK_REL_POS_SRC_TOUCHPAD,
+        };
+        ZMK_EVENT_RAISE(evt);
     }
+
+reschedule:
+    // 安排下一次轮询
+    k_work_reschedule(dwork, K_MSEC(cfg->poll_interval_ms));
 }
 
-// 设备初始化
-static int touchpad_init(const struct device *dev) {
-    const struct touchpad_config *cfg = dev->config;
-    struct touchpad_data *data = dev->data;
+// 运动检测引脚中断回调
+static void trackpad_motion_callback(const struct device *dev, struct gpio_callback *cb,
+                                    uint32_t pins) {
+    struct trackpad_data *data = CONTAINER_OF(cb, struct trackpad_data, motion_cb_data);
+    // 立即安排处理工作
+    k_work_reschedule(&data->work, K_NO_WAIT);
+}
 
-    // 执行上电序列
-    touchpad_power_up_sequence(cfg);
-
-    // GPIO初始化
-    gpio_pin_configure_dt(&cfg->reset_gpio, GPIO_OUTPUT_INACTIVE);
-    gpio_pin_configure_dt(&cfg->shutdown_gpio, GPIO_OUTPUT_INACTIVE);
-    gpio_pin_configure_dt(&cfg->motion_gpio, GPIO_INPUT | GPIO_INT_EDGE_FALLING);
-
-    // 复位序列（与原始代码一致）
-    gpio_pin_set_dt(&cfg->reset_gpio, 0);
-    k_msleep(100);
-    gpio_pin_set_dt(&cfg->reset_gpio, 1);
-
-    // 中断和工作队列配置
-    gpio_init_callback(&data->motion_cb, motion_isr, BIT(cfg->motion_gpio.pin));
-    gpio_add_callback_dt(&cfg->motion_gpio, &data->motion_cb);
-    gpio_pin_interrupt_configure_dt(&cfg->motion_gpio, GPIO_INT_EDGE_TO_ACTIVE);
-    k_work_init(&data->motion_work, process_motion);
-
+// 设置模式的API函数
+int trackpad_set_scroll_mode(const struct device *dev, bool enable) {
+    if (!device_is_ready(dev)) {
+        return -ENODEV;
+    }
+    
+    struct trackpad_data *data = dev->data;
+    data->is_scroll_mode = enable;
     return 0;
 }
 
-// Zephyr设备定义
-#define TOUCHPAD_INIT(n) \
-    static struct touchpad_config config_##n = { \
-        .i2c = I2C_DT_SPEC_INST_GET(n), \
-        .motion_gpio = GPIO_DT_SPEC_INST_GET(n, motion_gpios), \
-        .reset_gpio = GPIO_DT_SPEC_INST_GET(n, reset_gpios), \
-        .shutdown_gpio = GPIO_DT_SPEC_INST_GET(n, shutdown_gpios), \
-        .swipe_cooldown_ms = DT_INST_PROP(n, swipe_cooldown_ms), \
-        .swipe_release_delay_ms = DT_INST_PROP(n, swipe_release_delay_ms) \
-    }; \
-    static struct touchpad_data data_##n; \
-    DEVICE_DT_INST_DEFINE(n, touchpad_init, NULL, &data_##n, &config_##n, \
-                          POST_KERNEL, CONFIG_APPLICATION_INIT_PRIORITY, NULL);
+int trackpad_set_boost_mode(const struct device *dev, bool enable) {
+    if (!device_is_ready(dev)) {
+        return -ENODEV;
+    }
+    
+    struct trackpad_data *data = dev->data;
+    data->is_boost_mode = enable;
+    return 0;
+}
 
-DT_INST_FOREACH_STATUS_OKAY(TOUCHPAD_INIT)
+int trackpad_set_slow_mode(const struct device *dev, bool enable) {
+    if (!device_is_ready(dev)) {
+        return -ENODEV;
+    }
+    
+    struct trackpad_data *data = dev->data;
+    data->is_slow_mode = enable;
+    return 0;
+}
+
+// 驱动初始化函数
+static int trackpad_init(const struct device *dev) {
+    const struct trackpad_config *cfg = dev->config;
+    struct trackpad_data *data = dev->data;
+    uint8_t pid, rev;
+    int err;
+
+    // 检查I2C设备是否就绪
+    if (!device_is_ready(cfg->i2c.bus)) {
+        LOG_ERR("I2C bus %s is not ready", cfg->i2c.bus->name);
+        return -ENODEV;
+    }
+
+    // 配置复位引脚
+    if (!device_is_ready(cfg->reset_gpio.port)) {
+        LOG_ERR("Reset GPIO device %s is not ready", cfg->reset_gpio.port->name);
+        return -ENODEV;
+    }
+    
+    err = gpio_pin_configure_dt(&cfg->reset_gpio, GPIO_OUTPUT_INACTIVE);
+    if (err) {
+        LOG_ERR("Failed to configure reset GPIO: %d", err);
+        return err;
+    }
+
+    // 配置关机引脚
+    if (!device_is_ready(cfg->shutdown_gpio.port)) {
+        LOG_ERR("Shutdown GPIO device %s is not ready", cfg->shutdown_gpio.port->name);
+        return -ENODEV;
+    }
+    
+    err = gpio_pin_configure_dt(&cfg->shutdown_gpio, GPIO_OUTPUT_INACTIVE);
+    if (err) {
+        LOG_ERR("Failed to configure shutdown GPIO: %d", err);
+        return err;
+    }
+
+    // 配置运动检测引脚
+    if (!device_is_ready(cfg->motion_gpio.port)) {
+        LOG_ERR("Motion GPIO device %s is not ready", cfg->motion_gpio.port->name);
+        return -ENODEV;
+    }
+    
+    err = gpio_pin_configure_dt(&cfg->motion_gpio, GPIO_INPUT | GPIO_PULL_UP);
+    if (err) {
+        LOG_ERR("Failed to configure motion GPIO: %d", err);
+        return err;
+    }
+
+    // 硬件复位序列
+    LOG_INF("Resetting trackpad...");
+    gpio_pin_set_dt(&cfg->shutdown_gpio, 0);
+    k_msleep(10);
+    gpio_pin_set_dt(&cfg->reset_gpio, 0);
+    k_msleep(100);
+    gpio_pin_set_dt(&cfg->reset_gpio, 1);
+    k_msleep(100);
+    gpio_pin_set_dt(&cfg->shutdown_gpio, 1);
+    k_msleep(100);
+
+    // 读取设备ID（可选，用于调试）
+    err = trackpad_read_register(dev, REG_PID, &pid);
+    if (err) {
+        LOG_WRN("Failed to read product ID: %d", err);
+    } else {
+        err = trackpad_read_register(dev, REG_REV, &rev);
+        if (err) {
+            LOG_WRN("Failed to read revision ID: %d", err);
+        } else {
+            LOG_INF("Trackpad detected - PID: 0x%02X, REV: 0x%02X", pid, rev);
+        }
+    }
+
+    // 设置运动检测中断
+    err = gpio_add_callback(cfg->motion_gpio.port, &data->motion_cb_data,
+                          trackpad_motion_callback);
+    if (err) {
+        LOG_ERR("Failed to add motion callback: %d", err);
+        return err;
+    }
+
+    err = gpio_pin_interrupt_configure_dt(&cfg->motion_gpio, GPIO_INT_EDGE_TO_ACTIVE);
+    if (err) {
+        LOG_ERR("Failed to configure motion interrupt: %d", err);
+        return err;
+    }
+
+    // 初始化工作队列
+    k_work_init_delayable(&data->work, trackpad_work_handler);
+    
+    // 安排首次轮询
+    k_work_reschedule(&data->work, K_MSEC(cfg->poll_interval_ms));
+
+    LOG_INF("Trackpad driver initialized");
+    return 0;
+}
+
+// 驱动API结构
+static const struct trackpad_driver_api trackpad_api = {
+    .set_scroll_mode = trackpad_set_scroll_mode,
+    .set_boost_mode = trackpad_set_boost_mode,
+    .set_slow_mode = trackpad_set_slow_mode,
+};
+
+// 设备树绑定信息
+static const struct trackpad_config trackpad_config = {
+    .i2c = I2C_DT_SPEC_INST_GET(0),
+    .motion_gpio = GPIO_DT_SPEC_INST_GET(0, motion_gpios),
+    .reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios),
+    .shutdown_gpio = GPIO_DT_SPEC_INST_GET(0, shutdown_gpios),
+    .poll_interval_ms = DT_INST_PROP(0, poll_interval_ms),
+    .scroll_speed_divider = DT_INST_PROP(0, scroll_speed_divider),
+    .boost_speed_multiplier = DT_INST_PROP(0, boost_speed_multiplier),
+    .slow_speed_divider = DT_INST_PROP(0, slow_speed_divider),
+};
+
+// 驱动私有数据实例
+static struct trackpad_data trackpad_data;
+
+// 注册驱动
+DEVICE_DT_INST_DEFINE(0, trackpad_init, NULL, &trackpad_data, &trackpad_config,
+                     POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &trackpad_api);
