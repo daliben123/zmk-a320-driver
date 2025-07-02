@@ -1,68 +1,40 @@
-description: ZMK Touchpad Driver
+# 触控板设备树绑定
+description: 通用触控板设备绑定
 
-compatible: "zmk,touchpad"
+compatible: "generic,touchpad"
 
-include: i2c-device.yaml
+include: [i2c-device.yaml, base.yaml]
 
 properties:
-    motion-gpios:
-      type: phandle-array
-      required: true
-      description: |
-        Motion detection output pin. Triggers an interrupt when motion is detected.
+  shutdown-gpios:
+    type: phandle-array
+    required: false
+    description: 休眠控制引脚
 
-    reset-gpios:
-      type: phandle-array
-      required: false
-      description: |
-        Reset pin for the touchpad. Active low.
-        Used to reset the device to its default state.
+  motion-gpios:
+    type: phandle-array
+    required: true
+    description: 触控检测中断引脚
 
-    shutdown-gpios:
-      type: phandle-array
-      required: false
-      description: |
-        Shutdown control pin. Active low.
-        When pulled low, puts the sensor into a low-power state.
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: 复位控制引脚
 
-    poll-interval-ms:
-      type: int
-      required: false
-      default: 10
-      description: |
-        Polling interval (in milliseconds) for reading touchpad data.
-        Defaults to 10ms.
+  scroll-speed-divider:
+    type: int
+    required: false
+    default: 6
+    description: 滚动模式速度除数
 
-    scroll-speed-divider:
-      type: int
-      required: false
-      default: 2
-      description: |
-        Divider for scroll mode speed. A higher value reduces scroll speed.
+  boost-speed-multiplier:
+    type: int
+    required: false
+    default: 2
+    description: 加速模式速度乘数
 
-    boost-speed-multiplier:
-      type: int
-      required: false
-      default: 2
-      description: |
-        Multiplier for boost mode speed. Increases cursor movement speed.
-
-    slow-speed-divider:
-      type: int
-      required: false
-      default: 2
-      description: |
-        Divider for slow mode speed. A higher value reduces cursor speed.
-
-# Example usage in a device tree:
-# touchpad@39 {
-#     compatible = "zmk,touchpad";
-#     reg = <0x39>;
-#     motion-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
-#     reset-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
-#     shutdown-gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
-#     poll-interval-ms = <10>;
-#     scroll-speed-divider = <2>;
-#     boost-speed-multiplier = <2>;
-#     slow-speed-divider = <2>;
-# };
+  slow-speed-divider:
+    type: int
+    required: false
+    default: 2
+    description: 减速模式速度除数
