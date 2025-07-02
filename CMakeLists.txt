@@ -1,16 +1,20 @@
-# Copyright (c) 2024 The ZMK Contributors
-# SPDX-License-Identifier: MIT
+# ZMK触控板驱动CMake构建脚本
 
-zephyr_library()
+# 添加驱动源文件
+target_sources(app PRIVATE
+    src/touchpad.c
+)
 
-# Touchpad驱动源文件
-zephyr_library_sources_ifdef(CONFIG_TOUCHPAD_DRIVER src/touchpad.c)
+# 添加头文件路径
+target_include_directories(app PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
-# 公共头文件目录
-zephyr_include_directories(include)
+# 添加设备树绑定路径
+set(BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+set(DTS_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
-# 应用程序自定义头文件目录
-zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)
-
-# Touchpad驱动头文件目录
-zephyr_include_directories(include/drivers/input)
+# 添加设备树覆盖文件路径
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/dts/overlays)
+    set(DTC_OVERLAY_FILE ${DTC_OVERLAY_FILE} ${CMAKE_CURRENT_SOURCE_DIR}/dts/overlays/${BOARD}.overlay)
+endif()
