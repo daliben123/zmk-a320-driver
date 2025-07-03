@@ -1,5 +1,11 @@
 /* touchpad.c - ZMK触控板驱动实现 */
 #include <zephyr/logging/log.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/drivers/i2c.h>
+
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(touchpad, CONFIG_ZMK_DRIVER_TOUCHPAD_LOG_LEVEL);
 
 #include "touchpad.h"
