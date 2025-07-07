@@ -29,15 +29,37 @@
 
 /* 触控模式定义 */
 enum touchpad_mode {
-    TOUCHPAD_MODE_NORMAL = 0,
-    TOUCHPAD_MODE_SCROLL,
-    TOUCHPAD_MODE_BOOST,
-    TOUCHPAD_MODE_SLOW
+    TOUCHPAD_MODE_SCROLL = 0,  // 对应实现中的mode 0
+    TOUCHPAD_MODE_BOOST = 1,   // 对应实现中的mode 1
+    TOUCHPAD_MODE_SLOW = 2,    // 对应实现中的mode 2
 };
 
 /* 驱动API函数 */
-int touchpad_set_mode(const struct device *dev, enum touchpad_mode mode);
-int touchpad_enable(const struct device *dev);
-int touchpad_disable(const struct device *dev);
+/**
+ * @brief 设置触控板操作模式
+ * 
+ * @param dev 设备实例
+ * @param mode 触控板模式 (0=滚动, 1=加速, 2=减速)
+ * @param enable 是否启用该模式
+ * @return 0表示成功，负数表示错误码
+ */
+int touchpad_set_mode(const struct device *dev, enum touchpad_mode mode, bool enable);
+
+/**
+ * @brief 获取触控板当前状态
+ * 
+ * @param dev 设备实例
+ * @param state 指向存储状态的结构体指针
+ * @return 0表示成功，负数表示错误码
+ */
+int touchpad_get_state(const struct device *dev, struct touchpad_state *state);
+
+/**
+ * @brief 重置触控板设备
+ * 
+ * @param dev 设备实例
+ * @return 0表示成功，负数表示错误码
+ */
+int touchpad_reset(const struct device *dev);
 
 #endif /* ZMK_DRIVER_TOUCHPAD_H */
