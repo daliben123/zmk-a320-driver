@@ -29,13 +29,14 @@ LOG_MODULE_REGISTER(trackpad, CONFIG_SENSOR_LOG_LEVEL);
 #define BOOST_SPEED_MULTIPLIER 2
 #define SLOW_SPEED_DIVIDER     2
 
-// 移除了blk_kbd和blk_tp字段
 struct trackpad_config {
     const struct device *i2c;
     uint8_t i2c_addr;
-    gpio_dt_spec shutdown_pin;
-    gpio_dt_spec motion_pin;
-    gpio_dt_spec reset_pin;
+    gpio_pin_t shutdown_pin;
+    gpio_pin_t motion_pin;
+    gpio_pin_t reset_pin;
+    gpio_dt_spec blk_kbd;
+    gpio_dt_spec blk_tp;
 };
 
 struct trackpad_data {
@@ -61,20 +62,6 @@ static int trackpad_i2c_read(const struct device *dev, uint8_t reg, uint8_t *val
     err = i2c_read(cfg->i2c, val, 1, cfg->i2c_addr);
     if (err) {
         LOG_ERR("I2C read error: %d", err);
-        return err;
-    }
-
-    return 0;
-}
-
-static int trackpad_i2c_write(const struct device *dev, uint8_t reg, uint8_t val) {
-    const struct trackpad_config *cfg = dev->config;
-    uint8_t buf[2] = {reg, val};
-    int err;
-
-    err = i2c_write(cfg->i2c, buf, 2, cfg->i2c_addr);
-    if (err) {
-        LOG_ERR("I2C write error: %d", err);
         return err;
     }
 
@@ -142,38 +129,6 @@ static void trackpad_work_handler(struct k_work *work) {
     k_work_submit_in(&data->work, K_MSEC(10));
 }
 
-static int trackpad_initialize_device(const struct device *dev) {
-    uint8_t pid, rev;
-    int err;
-    
-    // 读取产品ID和版本号进行设备识别
-    err = trackpad_i2c_read(dev, REG_PID, &pid);
-    if (err) {
-        LOG_ERR("Failed to read product ID: %d", err);
-        return err;
-    }
-    
-    err = trackpad_i2c_read(dev, REG_REV, &rev);
-    if (err) {
-        LOG_ERR("Failed to read revision: %d", err);
-        return err;
-    }
-    
-    LOG_INF("Trackpad identified - PID: 0x%02X, REV: 0x%02X", pid, rev);
-    
-    // 这里添加设备特定的初始化序列
-    // 例如设置配置寄存器、启用功能等
-    
-    // 示例：写入配置寄存器
-    err = trackpad_i2c_write(dev, REG_CONFIG, 0x01); // 假设0x01是适当的配置值
-    if (err) {
-        LOG_ERR("Failed to configure device: %d", err);
-        return err;
-    }
-    
-    return 0;
-}
-
 static int trackpad_init(const struct device *dev) {
     struct trackpad_data *data = dev->data;
     const struct trackpad_config *cfg = dev->config;
@@ -184,40 +139,43 @@ static int trackpad_init(const struct device *dev) {
         return -ENODEV;
     }
 
-    // 移除了blk_kbd和blk_tp的GPIO配置代码
-    // Trackpad reset sequence - 使用正确的gpio_dt_spec结构
-    err = gpio_pin_configure_dt(&cfg->shutdown_pin, GPIO_OUTPUT_INACTIVE);
+    // Initialize GPIO pins
+    err = gpio_pin_configure_dt(&cfg->blk_kbd, GPIO_OUTPUT_INACTIVE);
+    if (err) {
+        LOG_ERR("Failed to configure BLK_KBD pin: %d", err);
+        return err;
+    }
+
+    err = gpio_pin_configure_dt(&cfg->blk_tp, GPIO_OUTPUT_INACTIVE);
+    if (err) {
+        LOG_ERR("Failed to configure BLK_TP pin: %d", err);
+        return err;
+    }
+
+    // Trackpad reset sequence
+    err = gpio_pin_configure_dt(cfg->shutdown_pin, GPIO_OUTPUT_INACTIVE);
     if (err) {
         LOG_ERR("Failed to configure shutdown pin: %d", err);
         return err;
     }
 
-    err = gpio_pin_configure_dt(&cfg->motion_pin, GPIO_INPUT);
+    err = gpio_pin_configure_dt(cfg->motion_pin, GPIO_INPUT);
     if (err) {
         LOG_ERR("Failed to configure motion pin: %d", err);
         return err;
     }
 
-    err = gpio_pin_configure_dt(&cfg->reset_pin, GPIO_OUTPUT_INACTIVE);
+    err = gpio_pin_configure_dt(cfg->reset_pin, GPIO_OUTPUT_INACTIVE);
     if (err) {
         LOG_ERR("Failed to configure reset pin: %d", err);
         return err;
     }
 
-    // 复位序列
     k_msleep(10);
-    gpio_pin_set_dt(&cfg->shutdown_pin, 0);
-    gpio_pin_set_dt(&cfg->reset_pin, 0);
+    gpio_pin_set_dt(cfg->shutdown_pin, 0);
+    gpio_pin_set_dt(cfg->reset_pin, 0);
     k_msleep(100);
-    gpio_pin_set_dt(&cfg->reset_pin, 1);
-    k_msleep(100); // 给设备一些时间启动
-    
-    // 初始化设备
-    err = trackpad_initialize_device(dev);
-    if (err) {
-        LOG_ERR("Failed to initialize trackpad device: %d", err);
-        return err;
-    }
+    gpio_pin_set_dt(cfg->reset_pin, 1);
 
     // Initialize work queue
     k_work_init(&data->work, trackpad_work_handler);
@@ -265,8 +223,9 @@ static const struct trackpad_config trackpad_config = {
     .shutdown_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(trackpad), shutdown_gpios),
     .motion_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(trackpad), motion_gpios),
     .reset_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(trackpad), reset_gpios),
-    // 移除了blk_kbd和blk_tp的配置
+    .blk_kbd = GPIO_DT_SPEC_GET(DT_NODELABEL(trackpad), blk_kbd_gpios),
+    .blk_tp = GPIO_DT_SPEC_GET(DT_NODELABEL(trackpad), blk_tp_gpios),
 };
 
 DEVICE_DT_INST_DEFINE(0, trackpad_init, NULL, &trackpad_data, &trackpad_config,
-                      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &trackpad_api);
+                      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &trackpad_api);    
