@@ -1,4 +1,5 @@
-# 触控板设备树绑定
+# touchpad.yaml（修改后）
+
 description: 通用触控板设备绑定
 
 compatible: "generic,touchpad"
@@ -38,3 +39,15 @@ properties:
     required: false
     default: 2
     description: 减速模式速度除数
+
+  poll-interval:
+    type: int
+    required: false
+    default: 10
+    description: 轮询间隔时间(毫秒)
+
+  i2c-address:
+    type: int
+    required: false
+    default: 0x3B
+    description: I2C设备地址
