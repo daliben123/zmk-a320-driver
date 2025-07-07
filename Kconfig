@@ -1,29 +1,68 @@
-# ZMK触控板驱动配置选项
-
 menuconfig ZMK_DRIVER_TOUCHPAD
-    bool "Touchpad driver"
+    bool "ZMK Touchpad Driver"
     default y
     help
-        Enable support for generic touchpads.
+      Enable support for the ZMK touchpad driver, which provides
+      mouse movement and scrolling functionality via an I2C touchpad.
 
 if ZMK_DRIVER_TOUCHPAD
 
-config ZMK_DRIVER_TOUCHPAD_LOG_LEVEL
-    int "Logging level"
-    default 2
-    range 0 4
+config ZMK_TOUCHPAD_I2C_ADDR
+    hex "Touchpad I2C Address"
+    default 0x3B
     help
-        Set the logging level for the touchpad driver.
+      I2C address of the touchpad device.
 
-config ZMK_DRIVER_TOUCHPAD_DEFAULT_MODE
-    int "Default operation mode"
+config ZMK_TOUCHPAD_POLL_INTERVAL
+    int "Polling Interval (ms)"
+    default 10
+    range 1 100
+    help
+      Interval at which the touchpad is polled for motion data.
+      Lower values provide more responsive input but consume more CPU.
+
+config ZMK_TOUCHPAD_SCROLL_SPEED
+    int "Scroll Speed Divider"
+    default 6
+    range 1 10
+    help
+      Speed divider for scroll mode. Lower values make scrolling faster.
+
+config ZMK_TOUCHPAD_BOOST_FACTOR
+    int "Boost Mode Multiplier"
+    default 2
+    range 1 5
+    help
+      Multiplier for cursor speed in boost mode.
+
+config ZMK_TOUCHPAD_SLOW_FACTOR
+    int "Slow Mode Divider"
+    default 2
+    range 1 5
+    help
+      Divider for cursor speed in slow mode.
+
+config ZMK_TOUCHPAD_INITIAL_MODE
+    int "Initial Operation Mode"
     default 0
     range 0 3
     help
-        Set the default operation mode for the touchpad.
-        0: Normal mode
-        1: Scroll mode
-        2: Boost mode
-        3: Slow mode
+      Default operation mode when the driver starts:
+      0: Normal mode (default)
+      1: Scroll mode
+      2: Boost mode
+      3: Slow mode
+
+config ZMK_TOUCHPAD_LOG_LEVEL
+    int "Logging Level"
+    default 2
+    range 0 4
+    help
+      Set the logging verbosity for the touchpad driver:
+      0: No logging
+      1: Error messages
+      2: Warnings
+      3: Information
+      4: Debug messages
 
 endif # ZMK_DRIVER_TOUCHPAD
