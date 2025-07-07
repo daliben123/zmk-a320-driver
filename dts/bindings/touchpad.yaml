@@ -1,53 +1,31 @@
-# touchpad.yaml（修改后）
+description: Trackpad sensor driver binding
 
-description: 通用触控板设备绑定
-
-compatible: "generic,touchpad"
+compatible: "trackpad,generic"
 
 include: [i2c-device.yaml, base.yaml]
 
 properties:
   shutdown-gpios:
     type: phandle-array
-    required: false
-    description: 休眠控制引脚
+    required: true
+    description: Shutdown pin
 
   motion-gpios:
     type: phandle-array
     required: true
-    description: 触控检测中断引脚
+    description: Motion detection pin
 
   reset-gpios:
     type: phandle-array
-    required: false
-    description: 复位控制引脚
+    required: true
+    description: Reset pin
 
-  scroll-speed-divider:
-    type: int
+  blk-kbd-gpios:
+    type: phandle-array
     required: false
-    default: 6
-    description: 滚动模式速度除数
+    description: Keyboard block pin
 
-  boost-speed-multiplier:
-    type: int
+  blk-tp-gpios:
+    type: phandle-array
     required: false
-    default: 2
-    description: 加速模式速度乘数
-
-  slow-speed-divider:
-    type: int
-    required: false
-    default: 2
-    description: 减速模式速度除数
-
-  poll-interval:
-    type: int
-    required: false
-    default: 10
-    description: 轮询间隔时间(毫秒)
-
-  i2c-address:
-    type: int
-    required: false
-    default: 0x3B
-    description: I2C设备地址
+    description: Trackpad block pin    
