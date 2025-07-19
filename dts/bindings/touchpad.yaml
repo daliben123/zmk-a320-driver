@@ -1,31 +1,30 @@
-description: Trackpad sensor driver binding
+description: Avago A320 TouchPad Driver
 
-compatible: "trackpad,generic"
+compatible: "avago,a320"
 
-include: [i2c-device.yaml, base.yaml]
+include: i2c-device.yaml
 
 properties:
-  shutdown-gpios:
-    type: phandle-array
-    required: true
-    description: Shutdown pin
+    nrst-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        nrst pin
 
-  motion-gpios:
-    type: phandle-array
-    required: true
-    description: Motion detection pin
+    motion-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        motion pin
 
-  reset-gpios:
-    type: phandle-array
-    required: true
-    description: Reset pin
+    orient-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        orient pin
 
-  blk-kbd-gpios:
-    type: phandle-array
-    required: false
-    description: Keyboard block pin
-
-  blk-tp-gpios:
-    type: phandle-array
-    required: false
-    description: Trackpad block pin    
+    shutdown-gpios:
+      type: phandle-array
+      required: false
+      description: |
+        shutdown pin
