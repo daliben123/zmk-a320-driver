@@ -5,11 +5,11 @@ compatible: "avago,a320"
 include: i2c-device.yaml
 
 properties:
-    nrst-gpios:
+    reset-gpios:
       type: phandle-array
       required: false
       description: |
-        nrst pin
+        reset pin
 
     motion-gpios:
       type: phandle-array
